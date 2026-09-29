@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ค้นหาหมู่บ้าน/ชุมชน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef2f4; --panel:#ffffff; --ink:#18242e; --muted:#5d6d79; --line:#d5dde2;
+    --accent:#0d6b5b; --accent-ink:#ffffff; --mark:#ffe58a; --err:#a4262c;
+    --font:"Noto Sans Thai","Sarabun","Tahoma",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#111a20; --panel:#18242c; --ink:#e6edf1; --muted:#95a5b0; --line:#2b3b45;
+           --accent:#37b59f; --accent-ink:#06211c; --mark:#6b5a12; --err:#ff8b90; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.6}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 48px}
+  h1{font-size:1.6rem;margin:0 0 4px;font-weight:700}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:.95rem}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .search{display:flex;gap:8px}
+  input[type=search],select{
+    font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;
+  }
+  input[type=search]{font-size:1.1rem;padding:12px 14px}
+  input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:2px}
+  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+  button:disabled{opacity:.45;cursor:default}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:16px 0 8px}
+  #count{font-weight:500}
+  .tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;min-width:640px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{position:sticky;top:0;background:var(--panel);font-size:.85rem;color:var(--muted);font-weight:500;cursor:pointer;user-select:none}
+  th[aria-sort]::after{content:" ▲";font-size:.7em}
+  th[aria-sort=descending]::after{content:" ▼"}
+  tbody tr:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  tr:last-child td{border-bottom:0}
+  td.name{font-weight:500}
+  mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .state{padding:32px 16px;text-align:center;color:var(--muted)}
+  .state.err{color:var(--err)}
+  .state p{margin:.4em 0}
+  .hint{font-size:.85rem;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ค้นหาหมู่บ้าน/ชุมชน</h1>
+  <p class="sub" id="source">ข้อมูลจาก Google Sheets: หมู่บ้าน_จังหวัดอุตรดิตถ์</p>
+
+  <div class="panel">
+    <label for="q">ค้นหาตำบล</label>
+    <div class="search">
+      <input id="q" type="search" placeholder="พิมพ์ชื่อตำบล เช่น ท่าเสา, ป่าเซ่า" autocomplete="off" autofocus>
+    </div>
+    <div class="hint">พิมพ์บางส่วนของชื่อตำบลได้ ระบบจะแสดงหมู่บ้านทั้งหมดในตำบลนั้น</div>
+  </div>
+
+  <div class="bar">
+    <span id="count" aria-live="polite"></span>
+    <span>
+      <button id="reset" type="button">ล้างตัวกรอง</button>
+      <button id="export" type="button" class="primary" disabled>ดาวน์โหลด CSV</button>
+      <button id="reload" type="button">โหลดข้อมูลใหม่</button>
+    </span>
+  </div>
+
+  <div class="tablebox">
+    <div id="state" class="state">กำลังโหลดข้อมูล…</div>
+    <table id="tbl" hidden><thead></thead><tbody></tbody></table>
+  </div>
+  <div class="pager" id="pager"></div>
+</div>
+
+<script>
+/* ===== ตั้งค่า ===== */
+const SHEET_ID = "1Vw4rWIDTht3TZkCCFe7kjlhtr6rZNAqXvZ2KRtPrOus";
+const GID = "476158749";
+const PAGE_SIZE = 50;
+const FILTER_COLS = [];              // ไม่ใช้ตัวกรอง
+const SEARCH_COL = "ตำบล";           // คอลัมน์ที่ใช้ค้นหา
+const SHEET_URLS = [
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`,
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`
+];
+
+/* ===== สถานะ ===== */
+let headers = [], rows = [], hay = [], view = [];
+let page = 1, sortCol = -1, sortDir = 1;
+const filterIdx = {};       // ชื่อคอลัมน์ -> index
+const $ = id => document.getElementById(id);
+
+/* ===== CSV parser (รองรับเครื่องหมายคำพูดและขึ้นบรรทัดใหม่ในเซลล์) ===== */
+function parseCSV(text){
+  const out = []; let row = [], cur = "", inQ = false;
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (inQ){
+      if (c === '"'){ if (text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else if (c === '"') inQ = true;
+    else if (c === ","){ row.push(cur); cur = ""; }
+    else if (c === "\n" || c === "\r"){
+      if (c === "\r" && text[i+1] === "\n") i++;
+      row.push(cur); out.push(row); row = []; cur = "";
+    } else cur += c;
+  }
+  if (cur !== "" || row.length){ row.push(cur); out.push(row); }
+  return out;
+}
+
+const norm = s => String(s).toLowerCase().normalize("NFC").trim();
+const esc = s => s.replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* ===== โหลดข้อมูล ===== */
+async function load(){
+  showState("กำลังโหลดข้อมูล…");
+  let lastErr;
+  for (const url of SHEET_URLS){
+    try{
+      const res = await fetch(url, {cache:"no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      if (/^\s*<(!doctype|html)/i.test(text)) throw new Error("ชีตไม่ได้เปิดสิทธิ์ดูแบบสาธารณะ");
+      return ingest(parseCSV(text));
+    }catch(e){ lastErr = e; }
+  }
+  showState(
+    `<p><b>โหลดข้อมูลจาก Google Sheets ไม่สำเร็จ</b></p>
+     <p>${esc(lastErr ? lastErr.message : "")}</p>
+     <p>ตรวจสอบว่าชีตแชร์เป็น “ทุกคนที่มีลิงก์ดูได้” หรือเลือกไฟล์ CSV ที่ดาวน์โหลดจากชีตแทน</p>
+     <p><input type="file" id="file" accept=".csv,text/csv"></p>`, true);
+  $("file").addEventListener("change", async e => {
+    const f = e.target.files[0]; if (f) ingest(parseCSV(await f.text()));
+  });
+}
+
+function ingest(table){
+  table = table.filter(r => r.some(c => c.trim() !== ""));
+  if (table.length < 2) return showState("ไม่พบข้อมูลในชีต", true);
+  // ใช้เฉพาะคอลัมน์ที่มีหัวตาราง
+  let last = table[0].length - 1;
+  while (last >= 0 && !table[0][last].trim()) last--;
+  headers = table[0].slice(0, last + 1).map(h => h.trim());
+  rows = table.slice(1).map(r => headers.map((_, i) => (r[i] ?? "").trim()));
+  const sc = headers.indexOf(SEARCH_COL);
+  if (sc < 0) return showState("ไม่พบคอลัมน์ “" + SEARCH_COL + "” ในชีต", true);
+  hay = rows.map(r => norm(r[sc]));
+  buildFilters();
+  $("export").disabled = false;
+  $("tbl").hidden = false; $("state").hidden = true;
+  const thead = $("tbl").tHead;
+  thead.innerHTML = "<tr>" + headers.map((h, i) => `<th data-i="${i}" tabindex="0" title="คลิกเพื่อเรียงลำดับ">${esc(h)}</th>`).join("") + "</tr>";
+  thead.querySelectorAll("th").forEach(th => {
+    const go = () => sortBy(+th.dataset.i);
+    th.addEventListener("click", go);
+    th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } });
+  });
+  apply();
+}
+
+function showState(html, err){
+  $("tbl").hidden = true; const s = $("state");
+  s.hidden = false; s.className = "state" + (err ? " err" : ""); s.innerHTML = html;
+  $("count").textContent = ""; $("pager").innerHTML = "";
+}
+
+/* ===== ตัวกรองแบบเลือกต่อเนื่อง (จังหวัด → อำเภอ → ตำบล) ===== */
+function buildFilters(){
+  const box = document.createElement("div");
+  FILTER_COLS.forEach(name => {
+    const i = headers.indexOf(name);
+    if (i < 0) return;
+    filterIdx[name] = i;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<label for="f-${i}">${esc(name)}</label><select id="f-${i}"></select>`;
+    box.appendChild(wrap);
+    wrap.querySelector("select").addEventListener("change", () => { page = 1; refreshOptions(); apply(); });
+  });
+  refreshOptions();
+}
+
+function refreshOptions(){
+  const names = FILTER_COLS.filter(n => n in filterIdx);
+  names.forEach((name, k) => {
+    const sel = $("f-" + filterIdx[name]);
+    const keep = sel.value;
+    // ตัวเลือกขึ้นกับตัวกรองก่อนหน้า
+    const upstream = names.slice(0, k).map(n => [filterIdx[n], $("f-" + filterIdx[n]).value]).filter(x => x[1]);
+    const set = new Set();
+    rows.forEach(r => { if (upstream.every(([i, v]) => r[i] === v) && r[filterIdx[name]]) set.add(r[filterIdx[name]]); });
+    const list = [...set].sort((a, b) => a.localeCompare(b, "th"));
+    sel.innerHTML = `<option value="">ทั้งหมด (${list.length})</option>` + list.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    sel.value = list.includes(keep) ? keep : "";
+  });
+}
+
+/* ===== ค้นหา / เรียง / แสดงผล ===== */
+function tokens(){ return norm($("q").value).split(/\s+/).filter(Boolean); }
+
+function apply(){
+  const toks = tokens();
+  const fs = Object.values(filterIdx).map(i => [i, $("f-" + i).value]).filter(x => x[1]);
+  view = [];
+  for (let n = 0; n < rows.length; n++){
+    if (fs.some(([i, v]) => rows[n][i] !== v)) continue;
+    if (toks.some(t => !hay[n].includes(t))) continue;
+    view.push(n);
+  }
+  if (sortCol >= 0){
+    view.sort((a, b) => sortDir * rows[a][sortCol].localeCompare(rows[b][sortCol], "th", {numeric:true}));
+  }
+  const pages = Math.max(1, Math.ceil(view.length / PAGE_SIZE));
+  if (page > pages) page = pages;
+  render(toks);
+}
+
+function sortBy(i){
+  if (sortCol === i) sortDir = -sortDir; else { sortCol = i; sortDir = 1; }
+  document.querySelectorAll("#tbl th").forEach((th, k) => {
+    if (k === i) th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending"); else th.removeAttribute("aria-sort");
+  });
+  page = 1; apply();
+}
+
+function render(toks){
+  const start = (page - 1) * PAGE_SIZE, slice = view.slice(start, start + PAGE_SIZE);
+  const re = toks.length ? new RegExp("(" + toks.map(reEsc).join("|") + ")", "gi") : null;
+  const nameCol = headers.findIndex(h => h.includes("ชื่อหมู่บ้าน"));
+  const sc = headers.indexOf(SEARCH_COL);
+  const cell = (v, i) => {
+    const t = esc(v);
+    const html = (re && i === sc) ? t.replace(re, "<mark>$1</mark>") : t;
+    return `<td${i === nameCol ? ' class="name"' : ""}>${html}</td>`;
+  };
+  const tb = $("tbl").tBodies[0];
+  tb.innerHTML = slice.map(n => "<tr>" + rows[n].map(cell).join("") + "</tr>").join("");
+  $("count").textContent = `พบ ${view.length.toLocaleString("th-TH")} จาก ${rows.length.toLocaleString("th-TH")} รายการ`;
+  if (!view.length){
+    $("tbl").hidden = true; $("state").hidden = false; $("state").className = "state";
+    $("state").innerHTML = "<p>ไม่พบรายการที่ตรงกับคำค้นหา</p><p>ลองลดจำนวนคำ หรือล้างตัวกรอง</p>";
+  } else { $("tbl").hidden = false; $("state").hidden = true; }
+  renderPager();
+}
+
+function renderPager(){
+  const pages = Math.ceil(view.length / PAGE_SIZE), p = $("pager");
+  if (pages <= 1){ p.innerHTML = ""; return; }
+  p.innerHTML = `<button id="prev" ${page === 1 ? "disabled" : ""}>ก่อนหน้า</button>
+    <span>หน้า ${page} / ${pages}</span>
+    <button id="next" ${page === pages ? "disabled" : ""}>ถัดไป</button>`;
+  $("prev").onclick = () => { page--; apply(); scrollTo({top:0}); };
+  $("next").onclick = () => { page++; apply(); scrollTo({top:0}); };
+}
+
+/* ===== ส่งออก CSV ตามผลค้นหาปัจจุบัน ===== */
+function exportCSV(){
+  const q = v => /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  const lines = [headers.map(q).join(",")].concat(view.map(n => rows[n].map(q).join(",")));
+  const blob = new Blob(["\ufeff" + lines.join("\r\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "ผลการค้นหาหมู่บ้าน.csv";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+
+/* ===== เหตุการณ์ ===== */
+let timer;
+$("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { page = 1; apply(); }, 150); });
+$("reset").addEventListener("click", () => {
+  $("q").value = ""; Object.values(filterIdx).forEach(i => $("f-" + i).value = "");
+  page = 1; refreshOptions(); apply(); $("q").focus();
+});
+$("export").addEventListener("click", exportCSV);
+$("reload").addEventListener("click", load);
+
+load();
+</script>
+</body>
+</html>
