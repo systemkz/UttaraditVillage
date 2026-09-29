@@ -88,6 +88,7 @@ const SHEET_ID = "1Vw4rWIDTht3TZkCCFe7kjlhtr6rZNAqXvZ2KRtPrOus";
 const GID = "476158749";
 const PAGE_SIZE = 50;
 const FILTER_COLS = [];              // ไม่ใช้ตัวกรอง
+const HIDE_COLS = ["new number", "รหัสจังหวัด", "จังหวัด", "รหัสอำเภอ", "รหัสตำบล", "ลำดับที่"]; // คอลัมน์ที่ไม่แสดง
 const SEARCH_COL = "ตำบล";           // คอลัมน์ที่ใช้ค้นหา
 const SHEET_URLS = [
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`,
@@ -95,7 +96,7 @@ const SHEET_URLS = [
 ];
 
 /* ===== สถานะ ===== */
-let headers = [], rows = [], hay = [], view = [];
+let headers = [], rows = [], hay = [], view = [], shown = [];
 let page = 1, sortCol = -1, sortDir = 1;
 const filterIdx = {};       // ชื่อคอลัมน์ -> index
 const $ = id => document.getElementById(id);
@@ -158,11 +159,12 @@ function ingest(table){
   const sc = headers.indexOf(SEARCH_COL);
   if (sc < 0) return showState("ไม่พบคอลัมน์ “" + SEARCH_COL + "” ในชีต", true);
   hay = rows.map(r => norm(r[sc]));
+  shown = headers.map((_, i) => i).filter(i => !HIDE_COLS.includes(headers[i]));
   buildFilters();
   $("export").disabled = false;
   $("tbl").hidden = false; $("state").hidden = true;
   const thead = $("tbl").tHead;
-  thead.innerHTML = "<tr>" + headers.map((h, i) => `<th data-i="${i}" tabindex="0" title="คลิกเพื่อเรียงลำดับ">${esc(h)}</th>`).join("") + "</tr>";
+  thead.innerHTML = "<tr>" + shown.map(i => `<th data-i="${i}" tabindex="0" title="คลิกเพื่อเรียงลำดับ">${esc(headers[i])}</th>`).join("") + "</tr>";
   thead.querySelectorAll("th").forEach(th => {
     const go = () => sortBy(+th.dataset.i);
     th.addEventListener("click", go);
@@ -229,8 +231,8 @@ function apply(){
 
 function sortBy(i){
   if (sortCol === i) sortDir = -sortDir; else { sortCol = i; sortDir = 1; }
-  document.querySelectorAll("#tbl th").forEach((th, k) => {
-    if (k === i) th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending"); else th.removeAttribute("aria-sort");
+  document.querySelectorAll("#tbl th").forEach(th => {
+    if (+th.dataset.i === i) th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending"); else th.removeAttribute("aria-sort");
   });
   page = 1; apply();
 }
@@ -246,7 +248,7 @@ function render(toks){
     return `<td${i === nameCol ? ' class="name"' : ""}>${html}</td>`;
   };
   const tb = $("tbl").tBodies[0];
-  tb.innerHTML = slice.map(n => "<tr>" + rows[n].map(cell).join("") + "</tr>").join("");
+  tb.innerHTML = slice.map(n => "<tr>" + shown.map(i => cell(rows[n][i], i)).join("") + "</tr>").join("");
   $("count").textContent = `พบ ${view.length.toLocaleString("th-TH")} จาก ${rows.length.toLocaleString("th-TH")} รายการ`;
   if (!view.length){
     $("tbl").hidden = true; $("state").hidden = false; $("state").className = "state";
@@ -268,7 +270,7 @@ function renderPager(){
 /* ===== ส่งออก CSV ตามผลค้นหาปัจจุบัน ===== */
 function exportCSV(){
   const q = v => /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-  const lines = [headers.map(q).join(",")].concat(view.map(n => rows[n].map(q).join(",")));
+  const lines = [shown.map(i => q(headers[i])).join(",")].concat(view.map(n => shown.map(i => q(rows[n][i])).join(",")));
   const blob = new Blob(["\ufeff" + lines.join("\r\n")], {type:"text/csv;charset=utf-8"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "ผลการค้นหาหมู่บ้าน.csv";
