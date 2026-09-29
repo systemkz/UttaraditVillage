@@ -59,11 +59,11 @@
   <p class="sub" id="source">ข้อมูลจาก Google Sheets: หมู่บ้าน_จังหวัดอุตรดิตถ์</p>
 
   <div class="panel">
-    <label for="q">ค้นหาตำบล</label>
+    <label for="q">ค้นหาอำเภอ / ตำบล</label>
     <div class="search">
-      <input id="q" type="search" placeholder="พิมพ์ชื่อตำบล เช่น ท่าเสา, ป่าเซ่า" autocomplete="off" autofocus>
+      <input id="q" type="search" placeholder="พิมพ์ชื่ออำเภอหรือตำบล เช่น เมืองอุตรดิตถ์, ท่าเสา" autocomplete="off" autofocus>
     </div>
-    <div class="hint">พิมพ์บางส่วนของชื่อตำบลได้ ระบบจะแสดงหมู่บ้านทั้งหมดในตำบลนั้น</div>
+    <div class="hint">พิมพ์บางส่วนของชื่อได้ พิมพ์หลายคำคั่นด้วยเว้นวรรคเพื่อจำกัดผล เช่น <b>เมือง ท่าเสา</b></div>
   </div>
 
   <div class="bar">
@@ -89,7 +89,7 @@ const GID = "476158749";
 const PAGE_SIZE = 50;
 const FILTER_COLS = [];              // ไม่ใช้ตัวกรอง
 const HIDE_COLS = ["new number", "รหัสจังหวัด", "จังหวัด", "รหัสอำเภอ", "รหัสตำบล", "ลำดับที่"]; // คอลัมน์ที่ไม่แสดง
-const SEARCH_COL = "ตำบล";           // คอลัมน์ที่ใช้ค้นหา
+const SEARCH_COLS = ["อำเภอ", "ตำบล"];   // คอลัมน์ที่ใช้ค้นหา
 const SHEET_URLS = [
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`,
   `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`
@@ -156,9 +156,10 @@ function ingest(table){
   while (last >= 0 && !table[0][last].trim()) last--;
   headers = table[0].slice(0, last + 1).map(h => h.trim());
   rows = table.slice(1).map(r => headers.map((_, i) => (r[i] ?? "").trim()));
-  const sc = headers.indexOf(SEARCH_COL);
-  if (sc < 0) return showState("ไม่พบคอลัมน์ “" + SEARCH_COL + "” ในชีต", true);
-  hay = rows.map(r => norm(r[sc]));
+  const sci = SEARCH_COLS.map(c => headers.indexOf(c));
+  const miss = SEARCH_COLS.filter((c, k) => sci[k] < 0);
+  if (miss.length) return showState("ไม่พบคอลัมน์ “" + miss.join("”, “") + "” ในชีต", true);
+  hay = rows.map(r => norm(sci.map(i => r[i]).join(" | ")));
   shown = headers.map((_, i) => i).filter(i => !HIDE_COLS.includes(headers[i]));
   buildFilters();
   $("export").disabled = false;
@@ -241,10 +242,10 @@ function render(toks){
   const start = (page - 1) * PAGE_SIZE, slice = view.slice(start, start + PAGE_SIZE);
   const re = toks.length ? new RegExp("(" + toks.map(reEsc).join("|") + ")", "gi") : null;
   const nameCol = headers.findIndex(h => h.includes("ชื่อหมู่บ้าน"));
-  const sc = headers.indexOf(SEARCH_COL);
+  const scs = SEARCH_COLS.map(c => headers.indexOf(c));
   const cell = (v, i) => {
     const t = esc(v);
-    const html = (re && i === sc) ? t.replace(re, "<mark>$1</mark>") : t;
+    const html = (re && scs.includes(i)) ? t.replace(re, "<mark>$1</mark>") : t;
     return `<td${i === nameCol ? ' class="name"' : ""}>${html}</td>`;
   };
   const tb = $("tbl").tBodies[0];
